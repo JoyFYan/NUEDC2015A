@@ -1,0 +1,102 @@
+void HRTIM1_TIMA_IRQHandler(void)
+{
+	if((mode==MI)&&(Vavr>(Vset1*80/100)))time1++;
+	else time1=0;
+	if(time1>=100)
+	{
+		mode=Stop;//过冲自动停止
+		HAL_HRTIM_WaveformOutputStop(&hhrtim1,HRTIM_OUTPUT_TA1|HRTIM_OUTPUT_TA2);
+	}
+	if(mode==MV){VFeed=PI_V();CurrentDutyA=VFeed;__HAL_HRTIM_SetCompare(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_1, VFeed);}//放电PID控制
+	else if(mode==MI)	{IFeed=PI_I();CurrentDutyA=IFeed;__HAL_HRTIM_SetCompare(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_1, IFeed);}//充电PID控制
+	
+	if((Iavr>(Iref+300))&&(Vavr1<=(Vset+50))&&(Vavr1>=(Vset-50)))mode=MI;
+		
+	if(Vavr1<1816){mode=MV;HAL_HRTIM_WaveformOutputStart(&hhrtim1, HRTIM_OUTPUT_TA1 |HRTIM_OUTPUT_TA2);}
+	
+	if (CurrentDutyA > BUCK_PWM_PERIOD / 2)	
+  {
+    //合理设置ADC触发时间，从而避开尖峰采样
+		__HAL_HRTIM_SetCompare(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_2,DT_RISING + CurrentDutyA / 2);
+		__HAL_HRTIM_SetCompare(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_4, DT_RISING + CurrentDutyA / 2);
+   }
+   else
+   {       
+		__HAL_HRTIM_SetCompare(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_2, ((BUCK_PWM_PERIOD - CurrentDutyA) / 2) + CurrentDutyA);
+		__HAL_HRTIM_SetCompare(&hhrtim1, HRTIM_TIMERINDEX_TIMER_A, HRTIM_COMPAREUNIT_4, ((BUCK_PWM_PERIOD - CurrentDutyA) / 2) + CurrentDutyA);
+		}
+	 
+	if(mode==MV) {ptrs[0]='V';ptrs[1]=' ';modep[0]=' ';}
+	else if(mode==MI){ptrs[0]='I';ptrs[1]=' ';modep[0]=' ';}
+	else if(mode==Stop){ptrs[0]='S';ptrs[1]=' ';modep[0]=' ';}
+
+  HAL_HRTIM_IRQHandler(&hhrtim1,HRTIM_TIMERINDEX_TIMER_A);
+}
+
+
+int32_t PI_I(void)
+{
+  int32_t seterr, pid_out;
+  int32_t error;
+
+  error = (int32_t ) I- Iset;
+  seterr = (-Kp1 * error);
+
+  Int_term_I = Int_term_I + ((-Ki1 * error));
+
+  if (Int_term_I > SAT_LIMIT*200)
+  {
+    Int_term_I = SAT_LIMIT*200;
+  }
+  if (Int_term_I < -(SAT_LIMIT*200))
+  {
+    Int_term_I = -(SAT_LIMIT*200);
+  }
+  pid_out = seterr + Int_term_I;
+  pid_out += SAT_LIMIT*200;
+
+  if (pid_out >= MAX_DUTY_A*200)
+  {
+    pid_out = MAX_DUTY_A*200;
+  }
+  if (pid_out <= MIN_DUTY_A*200)
+  {
+    pid_out = MIN_DUTY_A*200;
+  }
+  }
+  return  pid_out / 200;
+}
+
+int32_t PI_V(void)
+{
+  int32_t seterr, pid_out;
+  int32_t error;
+
+  error = (int32_t ) V1 - (int32_t) Vset;
+  seterr = (Kp * error);
+
+  Int_term_V = Int_term_V + ((Ki * error));
+
+  if (Int_term_V > SAT_LIMIT*200)
+  {
+    Int_term_V = SAT_LIMIT*200;
+  }
+  if (Int_term_V < -(SAT_LIMIT*200))
+  {
+    Int_term_V = -(SAT_LIMIT*200);
+  }
+  pid_out = seterr + Int_term_V;
+  pid_out += BUCK_PWM_PERIOD *100;
+
+  if (pid_out >= MAX_DUTY_A*200)
+  {
+    pid_out = MAX_DUTY_A*200;
+
+  }
+
+  if (pid_out <= MIN_DUTY_A*200)
+  {
+    pid_out = MIN_DUTY_A*200;
+  }
+  return  pid_out/200;
+}
